@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>AI智能记账</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            success: '#36D399',
+            danger: '#F87272',
+            warning: '#FBBD23',
+            grayText: '#64748B',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f5f7fa;
+      max-width: 430px;
+      margin: 0 auto;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .app-page {
+      display: none;
+      height: calc(100vh - 60px);
+      overflow-y: auto;
+      padding-bottom: 20px;
+    }
+    .app-page.active {
+      display: block;
+    }
+    .tab-bar {
+      height: 60px;
+      background: #fff;
+      border-top: 1px solid #eee;
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 430px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      z-index: 100;
+    }
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .tab-item.active {
+      color: #165DFF;
+    }
+    .tab-item i {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+    .category-item.active {
+      background: #165DFF15 !important;
+      color: #165DFF !important;
+    }
+    .switch-btn {
+      width: 44px;
+      height: 24px;
+      border-radius: 12px;
+      background: #ddd;
+      position: relative;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .switch-btn.on {
+      background: #165DFF;
+    }
+    .switch-btn::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      top: 2px;
+      left: 2px;
+      transition: 0.3s;
+    }
+    .switch-btn.on::after {
+      left: 22px;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.active {
+      display: flex;
+    }
+    .modal-content {
+      background: #fff;
+      border-radius: 16px;
+      width: 90%;
+      max-width: 350px;
+      padding: 20px;
+    }
+    .toast {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      z-index: 2000;
+      display: none;
+    }
+    .toast.active {
+      display: block;
+      animation: fadeInOut 2s ease;
+    }
+    @keyframes fadeInOut {
+      0% { opacity: 0; }
+      20% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    .disabled-item {
+      opacity: 0.5;
+      cursor: not-allowed !important;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 首页仪表盘 -->
+  <div id="page-home" class="app-page active p-4">
+    <div class="flex justify-between items-center py-4">
+      <div>
+        <p class="text-grayText text-sm" id="greeting">下午好👋</p>
+        <h2 class="text-xl font-bold">我的财务</h2>
+      </div>
+      <div class="flex gap-4">
+        <i class="fa fa-bell-o text-xl text-grayText cursor-pointer" onclick="showToast('暂无新消息')"></i>
+        <i class="fa fa-cog text-xl text-grayText cursor-pointer" onclick="switchPage('mine', document.querySelectorAll('.tab-item')[3])"></i>
+      </div>
+    </div>
+
+    <!-- 余额卡片 -->
+    <div class="card bg-gradient-to-r from-primary to-blue-500 text-white p-5 mb-4">
+      <div class="flex justify-between items-center mb-2">
+        <p class="text-white/80 text-sm">总资产</p>
+        <i class="fa fa-eye-slash text-white/80 cursor-pointer" id="balance-toggle" onclick="toggleBalance()"></i>
+      </div>
+      <h1 class="text-3xl font-bold my-2" id="total-balance">¥ 0.00</h1>
+      <div class="flex justify-between text-sm mt-3">
+        <div><p class="text-white/70">本月收入</p><p class="font-bold" id="month-income">¥0.00</p></div>
+        <div><p class="text-white/70">本月支出</p><p class="font-bold" id="month-expense">¥0.00</p></div>
+        <div><p class="text-white/70">结余</p><p class="font-bold" id="month-balance">¥0.00</p></div>
+      </div>
+    </div>
+
+    <!-- 快捷操作 -->
+    <div class="grid grid-cols-4 gap-3 mb-4">
+      <div class="card p-3 flex flex-col items-center cursor-pointer" onclick="switchPage('add', document.querySelectorAll('.tab-item')[2])">
+        <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-lg">
+          <i class="fa fa-plus"></i>
+        </div>
+        <span class="text-xs mt-2">记账</span>
+      </div>
+      <div class="card p-3 flex flex-col items-center cursor-pointer" onclick="showModal('income-modal')">
+        <div class="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center text-success text-lg">
+          <i class="fa fa-arrow-down"></i>
+        </div>
+        <span class="text-xs mt-2">收入</span>
+      </div>
+      <div class="card p-3 flex flex-col items-center cursor-pointer" onclick="showModal('expense-modal')">
+        <div class="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center text-danger text-lg">
+          <i class="fa fa-arrow-up"></i>
+        </div>
+        <span class="text-xs mt-2">支出</span>
+      </div>
+      <div class="card p-3 flex flex-col items-center cursor-pointer" onclick="aiAutoBill()">
+        <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-500 text-lg">
+          <i class="fa fa-robot"></i>
+        </div>
+        <span class="text-xs mt-2">AI记账</span>
+      </div>
+    </div>
+
+    <!-- 收支图表 -->
+    <div class="card p-4 mb-4">
+      <div class="flex justify-between mb-3">
+        <h3 class="font-semibold">月度收支趋势</h3>
+        <select class="text-xs text-primary bg-transparent outline-none" id="chart-period" onchange="updateHomeChart()">
+          <option value="month">本月</option>
+          <option value="quarter">本季度</option>
+          <option value="year">本年</option>
+        </select>
+      </div>
+      <div class="h-48">
+        <canvas id="homeChart"></canvas>
+      </div>
+    </div>
+
+    <!-- 最近流水 -->
+    <div class="card p-4">
+      <div class="flex justify-between mb-3">
+        <h3 class="font-semibold">最近账单</h3>
+        <span class="text-xs text-primary cursor-pointer" onclick="switchPage('bills', document.querySelectorAll('.tab-item')[1])">查看全部</span>
+      </div>
+      <div class="space-y-4" id="recent-bills">
+        <!-- 账单列表由JS动态生成 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 账单列表页面 -->
+  <div id="page-bills" class="app-page p-4">
+    <div class="flex justify-between items-center py-3 mb-2">
+      <h2 class="text-lg font-bold">账单明细</h2>
+      <div class="flex gap-3">
+        <i class="fa fa-calendar text-xl text-grayText cursor-pointer" onclick="showToast('日历功能暂未开放')"></i>
+        <i class="fa fa-filter text-xl text-grayText cursor-pointer" onclick="showToast('筛选功能暂未开放')"></i>
+      </div>
+    </div>
+
+    <!-- 搜索框 -->
+    <div class="card p-3 mb-4 flex items-center">
+      <i class="fa fa-search text-grayText mr-3"></i>
+      <input type="text" id="bill-search" placeholder="搜索账单..." class="flex-1 outline-none" oninput="searchBills()">
+    </div>
+
+    <!-- 账单列表 -->
+    <div id="all-bills">
+      <!-- 账单列表由JS动态生成 -->
+    </div>
+  </div>
+
+  <!-- 记账页面 -->
+  <div id="page-add" class="app-page p-4">
+    <div class="flex justify-between items-center py-3">
+      <h2 class="text-lg font-bold" id="add-title">记一笔</h2>
+      <button class="text-primary font-medium" onclick="saveBill()">保存</button>
+    </div>
+
+    <!-- 收支切换 -->
+    <div class="flex rounded-lg overflow-hidden mb-6">
+      <button id="btn-out" class="flex-1 py-3 bg-danger/10 text-danger font-medium" onclick="switchBillType('out')">支出</button>
+      <button id="btn-in" class="flex-1 py-3 bg-gray-100 text-grayText font-medium" onclick="switchBillType('in')">收入</button>
+    </div>
+
+    <!-- 金额输入 -->
+    <div class="text-center mb-6">
+      <input type="number" id="bill-money" placeholder="0.00" class="text-4xl font-bold text-center w-full bg-transparent border-none outline-none" step="0.01">
+    </div>
+
+    <!-- 分类选择 -->
+    <p class="text-grayText text-sm mb-3">选择分类</p>
+    <div class="grid grid-cols-4 gap-3 mb-6" id="category-box">
+      <!-- 分类由JS动态生成 -->
+    </div>
+
+    <!-- 账户选择 -->
+    <div class="card p-3 mb-4 flex justify-between items-center cursor-pointer" onclick="showModal('account-modal')">
+      <div class="flex items-center">
+        <i class="fa fa-credit-card text-grayText mr-3"></i>
+        <span>支付账户</span>
+      </div>
+      <div class="flex items-center">
+        <span id="selected-account" class="text-grayText mr-2">现金</span>
+        <i class="fa fa-chevron-right text-grayText"></i>
+      </div>
+    </div>
+
+    <!-- 日期时间 -->
+    <div class="card p-3 mb-4 flex justify-between items-center cursor-pointer" onclick="showModal('date-modal')">
+      <div class="flex items-center">
+        <i class="fa fa-calendar text-grayText mr-3"></i>
+        <span>日期时间</span>
+      </div>
+      <div class="flex items-center">
+        <span id="selected-date" class="text-grayText mr-2"></span>
+        <i class="fa fa-chevron-right text-grayText"></i>
+      </div>
+    </div>
+
+    <!-- 备注 -->
+    <div class="card p-3 mb-4">
+      <textarea id="bill-remark" placeholder="添加备注..." class="w-full h-20 outline-none resize-none"></textarea>
+    </div>
+
+    <!-- AI 智能建议 -->
+    <div class="card p-4 bg-primary/5 border border-primary/20">
+      <div class="flex">
+        <div class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center mr-3">
+          <i class="fa fa-robot"></i>
+        </div>
+        <div>
+          <p class="text-primary font-medium text-sm">AI智能建议</p>
+          <p class="text-xs text-grayText mt-1" id="ai-suggestion">已自动为你匹配常用分类，可直接保存记账</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 我的设置页面（已调整） -->
+  <div id="page-mine" class="app-page p-4">
+    <div class="flex items-center py-4 mb-4">
+      <div class="w-16 h-16 rounded-full bg-gray-200 mr-4 flex items-center justify-center text-2xl text-grayText">
+        <i class="fa fa-user"></i>
+      </div>
+      <div>
+        <h3 class="font-bold text-lg">AI记账用户</h3>
+        <p class="text-xs text-grayText">智能管理每一笔开销</p>
+      </div>
+    </div>
+
+    <!-- 功能列表 -->
+    <div class="space-y-3">
+      <!-- 账户管理：已恢复可使用 -->
+      <div class="card p-4 flex justify-between items-center cursor-pointer" onclick="showModal('account-manage-modal')">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-success/10 text-success flex items-center justify-center mr-3">
+            <i class="fa fa-bank"></i>
+          </div>
+          <span>账户管理</span>
+        </div>
+        <i class="fa fa-chevron-right text-grayText"></i>
+      </div>
+
+      <div class="card p-4 flex justify-between items-center">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mr-3">
+            <i class="fa fa-robot"></i>
+          </div>
+          <span>AI自动记账</span>
+        </div>
+        <div class="switch-btn on" onclick="toggleSwitch(this)"></div>
+      </div>
+
+      <div class="card p-4 flex justify-between items-center">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-warning/10 text-warning flex items-center justify-center mr-3">
+            <i class="fa fa-bell"></i>
+          </div>
+          <span>消费提醒</span>
+        </div>
+        <div class="switch-btn on" onclick="toggleSwitch(this)"></div>
+      </div>
+
+      <div class="card p-4 flex justify-between items-center cursor-pointer" onclick="exportData()">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-gray-100 text-grayText flex items-center justify-center mr-3">
+            <i class="fa fa-download"></i>
+          </div>
+          <span>导出数据</span>
+        </div>
+        <i class="fa fa-chevron-right text-grayText"></i>
+      </div>
+
+      <div class="card p-4 flex justify-between items-center cursor-pointer" onclick="clearAllData()">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-danger/10 text-danger flex items-center justify-center mr-3">
+            <i class="fa fa-trash"></i>
+          </div>
+          <span>清除所有数据</span>
+        </div>
+        <i class="fa fa-chevron-right text-grayText"></i>
+      </div>
+
+      <div class="card p-4 flex justify-between items-center">
+        <div class="flex items-center">
+          <div class="w-10 h-10 rounded-full bg-gray-100 text-grayText flex items-center justify-center mr-3">
+            <i class="fa fa-info-circle"></i>
+          </div>
+          <span>关于APP</span>
+        </div>
+        <span class="text-xs text-grayText">v1.0.0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部导航栏 -->
+  <div class="tab-bar">
+    <div class="tab-item active" onclick="switchPage('home', this)">
+      <i class="fa fa-home"></i>
+      <span>首页</span>
+    </div>
+    <div class="tab-item" onclick="switchPage('bills', this)">
+      <i class="fa fa-list"></i>
+      <span>账单</span>
+    </div>
+    <div class="tab-item" onclick="switchPage('add', this)">
+      <i class="fa fa-plus-circle"></i>
+      <span>记账</span>
+    </div>
+    <div class="tab-item" onclick="switchPage('mine', this)">
+      <i class="fa fa-user"></i>
+      <span>我的</span>
+    </div>
+  </div>
+
+  <!-- 模态框 -->
+  <!-- 编辑账单模态框 -->
+  <div id="edit-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">编辑账单</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('edit-modal')"></i>
+      </div>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm text-grayText">金额</label>
+          <input type="number" id="edit-money" class="w-full p-3 border rounded-lg mt-1" step="0.01">
+        </div>
+        
+        <div>
+          <label class="text-sm text-grayText">备注</label>
+          <input type="text" id="edit-remark" class="w-full p-3 border rounded-lg mt-1">
+        </div>
+        
+        <div class="flex gap-3">
+          <button class="flex-1 py-3 border border-gray-300 rounded-lg" onclick="closeModal('edit-modal')">取消</button>
+          <button class="flex-1 py-3 bg-primary text-white rounded-lg" onclick="updateBill()">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 删除确认模态框 -->
+  <div id="delete-modal" class="modal">
+    <div class="modal-content">
+      <div class="text-center mb-4">
+        <div class="w-16 h-16 rounded-full bg-danger/10 flex items-center justify-center mx-auto mb-3">
+          <i class="fa fa-exclamation-triangle text-2xl text-danger"></i>
+        </div>
+        <h3 class="font-bold text-lg">确认删除</h3>
+        <p class="text-grayText text-sm mt-2">删除后无法恢复，确定要删除吗？</p>
+      </div>
+      
+      <div class="flex gap-3">
+        <button class="flex-1 py-3 border border-gray-300 rounded-lg" onclick="closeModal('delete-modal')">取消</button>
+        <button class="flex-1 py-3 bg-danger text-white rounded-lg" onclick="confirmDelete()">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 账户选择模态框 -->
+  <div id="account-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">选择账户</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('account-modal')"></i>
+      </div>
+      
+      <div id="account-list" class="space-y-2">
+        <!-- 账户列表由JS动态生成 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 账户管理模态框（完整功能） -->
+  <div id="account-manage-modal" class="modal">
+    <div class="modal-content" style="max-width: 90%; max-height: 80vh; overflow-y: auto;">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">账户管理</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('account-manage-modal')"></i>
+      </div>
+      
+      <div id="account-manage-list" class="space-y-2 mb-4">
+        <!-- 账户管理列表由JS动态生成 -->
+      </div>
+      
+      <div class="flex gap-3">
+        <input type="text" id="new-account" placeholder="输入新账户名称" class="flex-1 p-3 border rounded-lg">
+        <button class="px-4 py-3 bg-primary text-white rounded-lg" onclick="addAccount()">添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷收入模态框 -->
+  <div id="income-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">快速记收入</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('income-modal')"></i>
+      </div>
+      
+      <div class="grid grid-cols-3 gap-3" id="quick-income">
+        <!-- 快捷收入由JS动态生成 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷支出模态框 -->
+  <div id="expense-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">快速记支出</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('expense-modal')"></i>
+      </div>
+      
+      <div class="grid grid-cols-3 gap-3" id="quick-expense">
+        <!-- 快捷支出由JS动态生成 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 日期选择模态框 -->
+  <div id="date-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">选择日期时间</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('date-modal')"></i>
+      </div>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm text-grayText">日期</label>
+          <input type="date" id="bill-date" class="w-full p-3 border rounded-lg mt-1">
+        </div>
+        
+        <div>
+          <label class="text-sm text-grayText">时间</label>
+          <input type="time" id="bill-time" class="w-full p-3 border rounded-lg mt-1">
+        </div>
+        
+        <button class="w-full py-3 bg-primary text-white rounded-lg" onclick="selectDateTime()">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑账户模态框 -->
+  <div id="edit-account-modal" class="modal">
+    <div class="modal-content">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-lg">编辑账户</h3>
+        <i class="fa fa-times text-grayText cursor-pointer" onclick="closeModal('edit-account-modal')"></i>
+      </div>
+      
+      <div class="space-y-4">
+        <div>
+          <label class="text-sm text-grayText">账户名称</label>
+          <input type="text" id="edit-account-name" class="w-full p-3 border rounded-lg mt-1">
+        </div>
+        
+        <div class="flex gap-3">
+          <button class="flex-1 py-3 border border-gray-300 rounded-lg" onclick="closeModal('edit-account-modal')">取消</button>
+          <button class="flex-1 py-3 bg-primary text-white rounded-lg" onclick="saveEditedAccount()">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast提示 -->
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // 全局变量
+    let bills = [];
+    let accounts = ['现金', '银行卡', '支付宝', '微信'];
+    let expenseCategories = ['餐饮', '购物', '交通', '住房', '娱乐', '医疗', '教育', '其他'];
+    let incomeCategories = ['工资', '奖金', '兼职', '投资', '红包', '其他'];
+    let selectedAccount = '现金';
+    let selectedCategory = '餐饮';
+    let billType = 'out';
+    let editingBillId = null;
+    let deletingBillId = null;
+    let editingAccountName = null;
+    let balanceHidden = false;
+
+    // 初始化应用
+    window.onload = function() {
+      loadData();
+      initGreeting();
+      initDate();
+      renderCategories();
+      renderAccounts();
+      renderAccountManageList();
+      renderQuickActions();
+      renderBills();
+      updateBalance();
+      initCharts();
+    };
+
+    // 数据持久化
+    function saveData() {
+      localStorage.setItem('ai-accounting-bills', JSON.stringify(bills));
+      localStorage.setItem('ai-accounting-accounts', JSON.stringify(accounts));
+      localStorage.setItem('ai-accounting-expense-categories', JSON.stringify(expenseCategories));
+      localStorage.setItem('ai-accounting-income-categories', JSON.stringify(incomeCategories));
+    }
+
+    function loadData() {
+      const savedBills = localStorage.getItem('ai-accounting-bills');
+      const savedAccounts = localStorage.getItem('ai-accounting-accounts');
+      const savedExpenseCates = localStorage.getItem('ai-accounting-expense-categories');
+      const savedIncomeCates = localStorage.getItem('ai-accounting-income-categories');
+
+      if (savedBills) bills = JSON.parse(savedBills);
+      if (savedAccounts) accounts = JSON.parse(savedAccounts);
+      if (savedExpenseCates) expenseCategories = JSON.parse(savedExpenseCates);
+      if (savedIncomeCates) incomeCategories = JSON.parse(savedIncomeCates);
+
+      // 所有账目初始归零
+      if (bills.length === 0) {
+        bills = [];
+        saveData();
+      }
+    }
+
+    // 页面切换
+    function switchPage(pageName, el) {
+      document.querySelectorAll('.app-page').forEach(page => {
+        page.classList.remove('active');
+      });
+      document.getElementById('page-' + pageName).classList.add('active');
+      document.querySelectorAll('.tab-item').forEach(item => {
+        item.classList.remove('active');
+      });
+      el.classList.add('active');
+
+      // 切换到账单页时重新渲染
+      if (pageName === 'bills') {
+        renderAllBills();
+      }
+    }
+
+    // 初始化问候语
+    function initGreeting() {
+      const hour = new Date().getHours();
+      let greeting = '早上好👋';
+      if (hour >= 12 && hour < 18) greeting = '下午好👋';
+      else if (hour >= 18) greeting = '晚上好👋';
+      document.getElementById('greeting').textContent = greeting;
+    }
+
+    // 初始化日期
+    function initDate() {
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = now.toTimeString().slice(0, 5);
+      document.getElementById('selected-date').textContent = dateStr + ' ' + timeStr;
+      document.getElementById('bill-date').value = dateStr;
+      document.getElementById('bill-time').value = timeStr;
+    }
+
+    // 切换收支类型
+    function switchBillType(type) {
+      billType = type;
+      if (type === 'out') {
+        document.getElementById('btn-out').className = 'flex-1 py-3 bg-danger/10 text-danger font-medium';
+        document.getElementById('btn-in').className = 'flex-1 py-3 bg-gray-100 text-grayText font-medium';
+      } else {
+        document.getElementById('btn-in').className = 'flex-1 py-3 bg-success/10 text-success font-medium';
+        document.getElementById('btn-out').className = 'flex-1 py-3 bg-gray-100 text-grayText font-medium';
+      }
+      renderCategories();
+    }
+
+    // 渲染分类
+    function renderCategories() {
+      const categories = billType === 'out' ? expenseCategories : incomeCategories;
+      const box = document.getElementById('category-box');
+      box.innerHTML = '';
+      
+      categories.forEach((cate, index) => {
+        const div = document.createElement('div');
+        div.className = `category-item card p-3 flex flex-col items-center cursor-pointer ${index === 0 ? 'active' : ''}`;
+        div.dataset.cate = cate;
+        div.onclick = function() {
+          document.querySelectorAll('.category-item').forEach(i => i.classList.remove('active'));
+          this.classList.add('active');
+          selectedCategory = cate;
+        };
+        
+        const icon = getCategoryIcon(cate, billType);
+        const color = billType === 'out' ? 'text-danger' : 'text-success';
+        
+        div.innerHTML = `
+          <i class="fa ${icon} text-lg ${color}"></i>
+          <span class="text-xs mt-1">${cate}</span>
+        `;
+        box.appendChild(div);
+      });
+      
+      selectedCategory = categories[0];
+    }
+
+    // 获取分类图标
+    function getCategoryIcon(cate, type) {
+      const expenseIcons = {
+        '餐饮': 'fa-cutlery',
+        '购物': 'fa-shopping-bag',
+        '交通': 'fa-car',
+        '住房': 'fa-home',
+        '娱乐': 'fa-film',
+        '医疗': 'fa-heartbeat',
+        '教育': 'fa-book',
+        '其他': 'fa-ellipsis-h'
+      };
+      
+      const incomeIcons = {
+        '工资': 'fa-briefcase',
+        '奖金': 'fa-trophy',
+        '兼职': 'fa-briefcase',
+        '投资': 'fa-line-chart',
+        '红包': 'fa-gift',
+        '其他': 'fa-ellipsis-h'
+      };
+      
+      return type === 'out' ? (expenseIcons[cate] || 'fa-ellipsis-h') : (incomeIcons[cate] || 'fa-ellipsis-h');
+    }
+
+    // 渲染账户选择列表
+    function renderAccounts() {
+      const list = document.getElementById('account-list');
+      list.innerHTML = '';
+      
+      accounts.forEach(acc => {
+        const div = document.createElement('div');
+        div.className = `p-3 rounded-lg cursor-pointer ${acc === selectedAccount ? 'bg-primary/10 text-primary' : 'hover:bg-gray-100'}`;
+        div.textContent = acc;
+        div.onclick = function() {
+          selectedAccount = acc;
+          document.getElementById('selected-account').textContent = acc;
+          closeModal('account-modal');
+        };
+        list.appendChild(div);
+      });
+    }
+
+    // 渲染账户管理列表（完整功能）
+    function renderAccountManageList() {
+      const list = document.getElementById('account-manage-list');
+      list.innerHTML = '';
+      
+      accounts.forEach(acc => {
+        const div = document.createElement('div');
+        div.className = 'flex justify-between items-center p-3 rounded-lg hover:bg-gray-50';
+        div.innerHTML = `
+          <span>${acc}</span>
+          <div class="flex gap-2">
+            <i class="fa fa-pencil text-grayText cursor-pointer" onclick="editAccount('${acc}')"></i>
+            <i class="fa fa-trash text-grayText cursor-pointer" onclick="deleteAccount('${acc}')"></i>
+          </div>
+        `;
+        list.appendChild(div);
+      });
+    }
+
+    // 添加新账户
+    function addAccount() {
+      const newAccountName = document.getElementById('new-account').value.trim();
+      if (!newAccountName) {
+        showToast('请输入账户名称');
+        return;
+      }
+      
+      if (accounts.includes(newAccountName)) {
+        showToast('该账户已存在');
+        return;
+      }
+      
+      accounts.push(newAccountName);
+      saveData();
+      renderAccounts();
+      renderAccountManageList();
+      document.getElementById('new-account').value = '';
+      showToast('账户添加成功');
+    }
+
+    // 编辑账户
+    function editAccount(accountName) {
+      editingAccountName = accountName;
+      document.getElementById('edit-account-name').value = accountName;
+      showModal('edit-account-modal');
+    }
+
+    // 保存编辑后的账户
+    function saveEditedAccount() {
+      const newName = document.getElementById('edit-account-name').value.trim();
+      if (!newName) {
+        showToast('请输入账户名称');
+        return;
+      }
+      
+      if (newName !== editingAccountName && accounts.includes(newName)) {
+        showToast('该账户已存在');
+        return;
+      }
+      
+      // 更新所有账单中的账户名称
+      bills.forEach(bill => {
+        if (bill.account === editingAccountName) {
+          bill.account = newName;
+        }
+      });
+      
+      // 更新账户列表
+      const index = accounts.indexOf(editingAccountName);
+      if (index !== -1) {
+        accounts[index] = newName;
+      }
+      
+      // 如果当前选中的是这个账户，更新显示
+      if (selectedAccount === editingAccountName) {
+        selectedAccount = newName;
+        document.getElementById('selected-account').textContent = newName;
+      }
+      
+      saveData();
+      renderAccounts();
+      renderAccountManageList();
+      renderBills();
+      renderAllBills();
+      closeModal('edit-account-modal');
+      showToast('账户修改成功');
+    }
+
+    // 删除账户
+    function deleteAccount(accountName) {
+      if (accounts.length <= 1) {
+        showToast('至少保留一个账户');
+        return;
+      }
+      
+      if (confirm(`确定要删除账户"${accountName}"吗？该账户下的所有账单将自动转移到"${accounts[0] === accountName ? accounts[1] : accounts[0]}"`)) {
+        // 转移账单到第一个其他账户
+        const newAccount = accounts[0] === accountName ? accounts[1] : accounts[0];
+        bills.forEach(bill => {
+          if (bill.account === accountName) {
+            bill.account = newAccount;
+          }
+        });
+        
+        // 如果当前选中的是这个账户，切换到新账户
+        if (selectedAccount === accountName) {
+          selectedAccount = newAccount;
+          document.getElementById('selected-account').textContent = newAccount;
+        }
+        
+        // 从账户列表中删除
+        accounts = accounts.filter(acc => acc !== accountName);
+        
+        saveData();
+        renderAccounts();
+        renderAccountManageList();
+        renderBills();
+        renderAllBills();
+        showToast('账户删除成功');
+      }
+    }
+
+    // 渲染快捷操作
+    function renderQuickActions() {
+      const incomeBox = document.getElementById('quick-income');
+      const expenseBox = document.getElementById('quick-expense');
+      
+      incomeBox.innerHTML = '';
+      incomeCategories.forEach(cate => {
+        const div = document.createElement('div');
+        div.className = 'card p-3 flex flex-col items-center cursor-pointer';
+        div.innerHTML = `
+          <i class="fa ${getCategoryIcon(cate, 'in')} text-lg text-success"></i>
+          <span class="text-xs mt-1">${cate}</span>
+        `;
+        div.onclick = function() {
+          quickAddBill('in', cate);
+        };
+        incomeBox.appendChild(div);
+      });
+      
+      expenseBox.innerHTML = '';
+      expenseCategories.forEach(cate => {
+        const div = document.createElement('div');
+        div.className = 'card p-3 flex flex-col items-center cursor-pointer';
+        div.innerHTML = `
+          <i class="fa ${getCategoryIcon(cate, 'out')} text-lg text-danger"></i>
+          <span class="text-xs mt-1">${cate}</span>
+        `;
+        div.onclick = function() {
+          quickAddBill('out', cate);
+        };
+        expenseBox.appendChild(div);
+      });
+    }
+
+    // 快速记账
+    function quickAddBill(type, category) {
+      const amount = prompt(`请输入${type === 'in' ? '收入' : '支出'}金额：`);
+      if (amount && !isNaN(amount) && parseFloat(amount) > 0) {
+        const now = new Date();
+        const bill = {
+          id: Date.now(),
+          type: type,
+          amount: parseFloat(amount),
+          category: category,
+          account: selectedAccount,
+          date: now.toISOString().split('T')[0],
+          time: now.toTimeString().slice(0, 5),
+          remark: ''
+        };
+        bills.unshift(bill);
+        saveData();
+        renderBills();
+        renderAllBills();
+        updateBalance();
+        updateCharts();
+        closeModal(type === 'in' ? 'income-modal' : 'expense-modal');
+        showToast('记账成功！');
+      }
+    }
+
+    // 保存账单
+    function saveBill() {
+      const money = document.getElementById('bill-money').value;
+      const remark = document.getElementById('bill-remark').value;
+      
+      if (!money || isNaN(money) || parseFloat(money) <= 0) {
+        showToast('请输入有效金额');
+        return;
+      }
+      
+      const dateTime = document.getElementById('selected-date').textContent.split(' ');
+      const bill = {
+        id: Date.now(),
+        type: billType,
+        amount: parseFloat(money),
+        category: selectedCategory,
+        account: selectedAccount,
+        date: dateTime[0],
+        time: dateTime[1],
+        remark: remark
+      };
+      
+      bills.unshift(bill);
+      saveData();
+      
+      // 重置表单
+      document.getElementById('bill-money').value = '';
+      document.getElementById('bill-remark').value = '';
+      
+      renderBills();
+      renderAllBills();
+      updateBalance();
+      updateCharts();
+      
+      showToast('记账成功！');
+      switchPage('home', document.querySelectorAll('.tab-item')[0]);
+    }
+
+    // 编辑账单
+    function editBill(id) {
+      editingBillId = id;
+      const bill = bills.find(b => b.id === id);
+      if (bill) {
+        document.getElementById('edit-money').value = bill.amount;
+        document.getElementById('edit-remark').value = bill.remark;
+        showModal('edit-modal');
+      }
+    }
+
+    // 更新账单
+    function updateBill() {
+      const money = document.getElementById('edit-money').value;
+      const remark = document.getElementById('edit-remark').value;
+      
+      if (!money || isNaN(money) || parseFloat(money) <= 0) {
+        showToast('请输入有效金额');
+        return;
+      }
+      
+      const index = bills.findIndex(b => b.id === editingBillId);
+      if (index !== -1) {
+        bills[index].amount = parseFloat(money);
+        bills[index].remark = remark;
+        saveData();
+        renderBills();
+        renderAllBills();
+        updateBalance();
+        updateCharts();
+        closeModal('edit-modal');
+        showToast('修改成功！');
+      }
+    }
+
+    // 删除账单
+    function deleteBill(id) {
+      deletingBillId = id;
+      showModal('delete-modal');
+    }
+
+    // 确认删除
+    function confirmDelete() {
+      bills = bills.filter(b => b.id !== deletingBillId);
+      saveData();
+      renderBills();
+      renderAllBills();
+      updateBalance();
+      updateCharts();
+      closeModal('delete-modal');
+      showToast('删除成功！');
+    }
+
+    // 渲染最近账单
+    function renderBills() {
+      const container = document.getElementById('recent-bills');
+      container.innerHTML = '';
+      
+      if (bills.length === 0) {
+        container.innerHTML = '<div class="text-center py-8 text-grayText">暂无账单记录</div>';
+        return;
+      }
+      
+      const recentBills = bills.slice(0, 5);
+      recentBills.forEach(bill => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center p-2 rounded-lg hover:bg-gray-50 transition';
+        
+        const icon = getCategoryIcon(bill.category, bill.type);
+        const color = bill.type === 'out' ? 'text-danger' : 'text-success';
+        const bgColor = bill.type === 'out' ? 'bg-danger/10' : 'bg-success/10';
+        const sign = bill.type === 'out' ? '-' : '+';
+        
+        div.innerHTML = `
+          <div class="w-10 h-10 rounded-full ${bgColor} ${color} flex items-center justify-center mr-3">
+            <i class="fa ${icon}"></i>
+          </div>
+          <div class="flex-1">
+            <p class="font-medium">${bill.category}</p>
+            <p class="text-xs text-grayText">${bill.date} ${bill.time} ${bill.account} ${bill.remark ? '· ' + bill.remark : ''}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-medium ${color}">${sign}¥${bill.amount.toFixed(2)}</span>
+            <div class="flex gap-1">
+              <i class="fa fa-pencil text-xs text-grayText cursor-pointer" onclick="editBill(${bill.id})"></i>
+              <i class="fa fa-trash text-xs text-grayText cursor-pointer" onclick="deleteBill(${bill.id})"></i>
+            </div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    // 渲染所有账单
+    function renderAllBills() {
+      const container = document.getElementById('all-bills');
+      container.innerHTML = '';
+      
+      if (bills.length === 0) {
+        container.innerHTML = '<div class="text-center py-12 text-grayText">暂无账单记录</div>';
+        return;
+      }
+      
+      // 按日期分组
+      const grouped = {};
+      bills.forEach(bill => {
+        if (!grouped[bill.date]) {
+          grouped[bill.date] = [];
+        }
+        grouped[bill.date].push(bill);
+      });
+      
+      Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a)).forEach(date => {
+        const dateDiv = document.createElement('div');
+        dateDiv.className = 'text-sm text-grayText mb-2 mt-4';
+        
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        
+        let dateText = date;
+        if (date === today) dateText = '今天';
+        else if (date === yesterday) dateText = '昨天';
+        
+        // 计算当日收支
+        const dayBills = grouped[date];
+        let dayIncome = 0, dayExpense = 0;
+        dayBills.forEach(b => {
+          if (b.type === 'in') dayIncome += b.amount;
+          else dayExpense += b.amount;
+        });
+        
+        dateDiv.innerHTML = `${dateText} <span class="ml-2">收入: ¥${dayIncome.toFixed(2)}</span> <span class="ml-2">支出: ¥${dayExpense.toFixed(2)}</span>`;
+        container.appendChild(dateDiv);
+        
+        const card = document.createElement('div');
+        card.className = 'card p-3 mb-3';
+        
+        dayBills.forEach(bill => {
+          const div = document.createElement('div');
+          div.className = 'flex items-center py-2 border-b border-gray-100 last:border-b-0';
+          
+          const icon = getCategoryIcon(bill.category, bill.type);
+          const color = bill.type === 'out' ? 'text-danger' : 'text-success';
+          const bgColor = bill.type === 'out' ? 'bg-danger/10' : 'bg-success/10';
+          const sign = bill.type === 'out' ? '-' : '+';
+          
+          div.innerHTML = `
+            <div class="w-10 h-10 rounded-full ${bgColor} ${color} flex items-center justify-center mr-3">
+              <i class="fa ${icon}"></i>
+            </div>
+            <div class="flex-1">
+              <p class="font-medium">${bill.category}</p>
+              <p class="text-xs text-grayText">${bill.time} ${bill.account} ${bill.remark ? '· ' + bill.remark : ''}</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="font-medium ${color}">${sign}¥${bill.amount.toFixed(2)}</span>
+              <div class="flex gap-1">
+                <i class="fa fa-pencil text-xs text-grayText cursor-pointer" onclick="editBill(${bill.id})"></i>
+                <i class="fa fa-trash text-xs text-grayText cursor-pointer" onclick="deleteBill(${bill.id})"></i>
+              </div>
+            </div>
+          `;
+          card.appendChild(div);
+        });
+        
+        container.appendChild(card);
+      });
+    }
+
+    // 搜索账单
+    function searchBills() {
+      renderAllBills();
+    }
+
+    // 更新余额（完全自动计算）
+    function updateBalance() {
+      let totalIncome = 0, totalExpense = 0;
+      let monthIncome = 0, monthExpense = 0;
+      
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      
+      bills.forEach(bill => {
+        if (bill.type === 'in') {
+          totalIncome += bill.amount;
+          const billDate = new Date(bill.date);
+          if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
+            monthIncome += bill.amount;
+          }
+        } else {
+          totalExpense += bill.amount;
+          const billDate = new Date(bill.date);
+          if (billDate.getMonth() === currentMonth && billDate.getFullYear() === currentYear) {
+            monthExpense += bill.amount;
+          }
+        }
+      });
+      
+      const totalBalance = totalIncome - totalExpense;
+      const monthBalance = monthIncome - monthExpense;
+      
+      document.getElementById('total-balance').textContent = `¥ ${totalBalance.toFixed(2)}`;
+      document.getElementById('month-income').textContent = `¥${monthIncome.toFixed(2)}`;
+      document.getElementById('month-expense').textContent = `¥${monthExpense.toFixed(2)}`;
+      document.getElementById('month-balance').textContent = `¥${monthBalance.toFixed(2)}`;
+    }
+
+    // 切换余额显示
+    function toggleBalance() {
+      balanceHidden = !balanceHidden;
+      const balanceEl = document.getElementById('total-balance');
+      const toggleEl = document.getElementById('balance-toggle');
+      
+      if (balanceHidden) {
+        balanceEl.textContent = '¥ ****.**';
+        toggleEl.className = 'fa fa-eye text-white/80 cursor-pointer';
+      } else {
+        updateBalance();
+        toggleEl.className = 'fa fa-eye-slash text-white/80 cursor-pointer';
+      }
+    }
+
+    // 初始化图表
+    let homeChart;
+    function initCharts() {
+      const ctx = document.getElementById('homeChart').getContext('2d');
+      homeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['1月','2月','3月','4月','5月','6月'],
+          datasets: [
+            {label:'收入',data:[0,0,0,0,0,0],backgroundColor:'#36D399'},
+            {label:'支出',data:[0,0,0,0,0,0],backgroundColor:'#F87272'}
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                boxWidth: 12,
+                usePointStyle: true,
+                pointStyle: 'circle'
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: {
+                color: 'rgba(0,0,0,0.05)'
+              }
+            },
+            x: {
+              grid: {
+                display: false
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function updateCharts() {
+      // 更新图表数据为当前实际数据
+      if (homeChart) {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        
+        // 简单更新当前月份数据
+        let monthIncome = 0, monthExpense = 0;
+        bills.forEach(bill => {
+          const billDate = new Date(bill.date);
+          if (billDate.getMonth() === currentMonth && billDate.getFullYear() === now.getFullYear()) {
+            if (bill.type === 'in') monthIncome += bill.amount;
+            else monthExpense += bill.amount;
+          }
+        });
+        
+        homeChart.data.datasets[0].data[5] = monthIncome;
+        homeChart.data.datasets[1].data[5] = monthExpense;
+        homeChart.update();
+      }
+    }
+
+    function updateHomeChart() {
+      // 切换图表周期
+      showToast('图表周期已切换');
+    }
+
+    // AI自动记账模拟
+    function aiAutoBill() {
+      showToast('AI正在识别消费记录...');
+      setTimeout(() => {
+        const now = new Date();
+        const bill = {
+          id: Date.now(),
+          type: 'out',
+          amount: 35.5,
+          category: '餐饮',
+          account: selectedAccount,
+          date: now.toISOString().split('T')[0],
+          time: now.toTimeString().slice(0, 5),
+          remark: 'AI自动识别：午餐'
+        };
+        bills.unshift(bill);
+        saveData();
+        renderBills();
+        renderAllBills();
+        updateBalance();
+        updateCharts();
+        showToast('AI自动记账成功！');
+      }, 1500);
+    }
+
+    // 选择日期时间
+    function selectDateTime() {
+      const date = document.getElementById('bill-date').value;
+      const time = document.getElementById('bill-time').value;
+      document.getElementById('selected-date').textContent = date + ' ' + time;
+      closeModal('date-modal');
+    }
+
+    // 模态框操作
+    function showModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    // 开关切换
+    function toggleSwitch(el) {
+      el.classList.toggle('on');
+      showToast(el.classList.contains('on') ? '已开启' : '已关闭');
+    }
+
+    // 导出数据
+    function exportData() {
+      const csvContent = "data:text/csv;charset=utf-8," 
+        + "日期,时间,类型,分类,账户,金额,备注\n"
+        + bills.map(b => `${b.date},${b.time},${b.type==='in'?'收入':'支出'},${b.category},${b.account},${b.amount},${b.remark}`).join("\n");
+      
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "记账数据_" + new Date().toISOString().split('T')[0] + ".csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast('数据导出成功！');
+    }
+
+    // 清除所有数据
+    function clearAllData() {
+      if (confirm('确定要清除所有数据吗？此操作不可恢复！')) {
+        localStorage.clear();
+        bills = [];
+        accounts = ['现金', '银行卡', '支付宝', '微信'];
+        expenseCategories = ['餐饮', '购物', '交通', '住房', '娱乐', '医疗', '教育', '其他'];
+        incomeCategories = ['工资', '奖金', '兼职', '投资', '红包', '其他'];
+        selectedAccount = '现金';
+        saveData();
+        renderBills();
+        renderAllBills();
+        renderAccounts();
+        renderAccountManageList();
+        updateBalance();
+        // 重置图表
+        if (homeChart) {
+          homeChart.data.datasets[0].data = [0,0,0,0,0,0];
+          homeChart.data.datasets[1].data = [0,0,0,0,0,0];
+          homeChart.update();
+        }
+        showToast('数据已清除');
+      }
+    }
+
+    // Toast提示
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('active');
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 2000);
+    }
+
+    // 点击模态框背景关闭
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', function(e) {
+        if (e.target === this) {
+          this.classList.remove('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>
